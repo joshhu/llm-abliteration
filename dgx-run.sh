@@ -7,6 +7,8 @@
 #   ./dgx-run.sh download  # hf download the base model (~52 GB)
 #   ./dgx-run.sh run       # start the headless abliteration in the background
 #   ./dgx-run.sh status    # tail progress + trial checkpoint count
+#   ./dgx-run.sh summary   # regenerate results/best-trial.md from the journal
+#   ./dgx-run.sh watch     # when the run finishes, refresh results/best-trial.md
 #   ./dgx-run.sh stop      # stop+remove the container (keeps downloads/output)
 #
 # Typical one-shot: ./dgx-run.sh start && ./dgx-run.sh deps && ./dgx-run.sh download && ./dgx-run.sh run
@@ -57,11 +59,27 @@ case "${1:-}" in
     echo "--- output ---"
     ls -la "$ROOT_HOST/out" 2>/dev/null || true
     ;;
+  summary)
+    ensure_workdir
+    mkdir -p "$WORK_HOST/results"
+    docker exec "$NAME" bash -lc \
+      "cd /heretic/qwen3.8-27b && python3 tools/summarize.py checkpoints/*.jsonl > results/best-trial.md"
+    echo "wrote $WORK_HOST/results/best-trial.md"
+    ;;
+  watch)
+    setsid nohup bash -c "
+      while ! grep -q '^EXIT=' '$WORK_HOST/run.log' 2>/dev/null; do sleep 120; done
+      mkdir -p '$WORK_HOST/results'
+      docker exec '$NAME' bash -lc 'cd /heretic/qwen3.8-27b && python3 tools/summarize.py checkpoints/*.jsonl > results/best-trial.md' \
+        && touch '$WORK_HOST/results/FINISHED'
+    " >/dev/null 2>&1 </dev/null &
+    echo "watcher started (regenerates results/best-trial.md when the run ends)"
+    ;;
   stop)
     docker rm -f "$NAME" >/dev/null && echo "removed $NAME"
     ;;
   *)
-    sed -n '2,14p' "$0"
+    sed -n '2,17p' "$0"
     exit 1
     ;;
 esac

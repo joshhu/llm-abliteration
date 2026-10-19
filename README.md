@@ -31,8 +31,13 @@
   會用 `questionary` 丢出互動問題（要選哪個 trial → 要對模型做什麼 → 存到哪個資料夾）。
   這裡把 `prompt_select` / `prompt_path` / `prompt_text` 換掉，讓無人值守的執行自動：
   選 Pareto 前端最好的 trial → 選「存到本機資料夾」→ 存到 `$HERETIC_SAVE_DIR` → 結束。
-* `dgx-run.sh` — 封裝 `start / deps / download / run / status / stop` 六個子命令，
+* `dgx-run.sh` — 封裝 `start / deps / download / run / status / summary / watch / stop` 等子命令，
   建立 container、裝套件、下載權重、啟動、看進度都靠它。
+* `tools/summarize.py` — 讀 Optuna journal checkpoint，產出 markdown 摘要：
+  Pareto 前端（拒答率 vs KL 散度）與建議 trial 的完整消融參數。
+  要在 container 內跑（需要 optuna）：`python3 tools/summarize.py checkpoints/*.jsonl`。
+* `results/best-trial.md` — 上面那個工具的輸出快照（目前跑到第幾 trial、拒答率、KL、參數）。
+  執行結束會自動更新；`./dgx-run.sh summary` 可手動重建。
 
 ## 執行流程
 
@@ -93,7 +98,11 @@ Optuna 每個 trial 會給一組消融核參數，長這樣：
 
 ## 目前進度
 
-* 2026-10-19 — 在 `JoshDGX` 開跑；原模型基線 90/100 拒答；100 trials 進行中，模型尚未匯出。
+* 2026-10-19 — 在 `JoshDGX` 開跑。原模型基線 **90/100 拒答**；跑到第 12 個 trial 時，
+  目前最佳已壓到 **67/100 拒答 @ KL 0.0119**（即時數字見 `results/best-trial.md`）。
+* 速度實測：約 6.5 分鐘 / trial → 100 trials 總共約 11 小時；輸出尚未匯出。
+* 在 DGX 上跑 `./dgx-run.sh watch` 會掛一個 watcher，等整個執行結束後自動重建
+  `results/best-trial.md`（並留下 `results/FINISHED` 標記）。
 * 後續：匯出最好的 trial → 上傳 `joshhu/Qwen3.8-27B-abliterated` → 用 vLLM 或 llama.cpp 起服務，
   並加進 `pi` 的模型選單。
 
