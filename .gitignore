@@ -1,5 +1,6 @@
 *.log
 checkpoints/
 out/
+results/
 __pycache__/
 .DS_Store
