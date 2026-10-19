@@ -98,13 +98,47 @@ Optuna 每個 trial 會給一組消融核參數，長這樣：
 
 ## 目前進度
 
-* 2026-10-19 — 在 `JoshDGX` 開跑。原模型基線 **90/100 拒答**；跑到第 12 個 trial 時，
-  目前最佳已壓到 **67/100 拒答 @ KL 0.0119**（即時數字見 `results/best-trial.md`）。
-* 速度實測：約 6.5 分鐘 / trial → 100 trials 總共約 11 小時；輸出尚未匯出。
-* 在 DGX 上跑 `./dgx-run.sh watch` 會掛一個 watcher，等整個執行結束後自動重建
-  `results/best-trial.md`（並留下 `results/FINISHED` 標記）。
-* 後續：匯出最好的 trial → 上傳 `joshhu/Qwen3.8-27B-abliterated` → 用 vLLM 或 llama.cpp 起服務，
-  並加進 `pi` 的模型選單。
+* 2026-10-19 — 在 `JoshDGX` 開跑；跑到 **85 / 100 trials** 時手動停止（要把 DGX 讓給別的工作），
+  `docker rm -f heretic-qwen38` 後記憶體已釋放（available 約 104 GB）。
+* 原模型基線 **90/100 拒答**；85 個 trial 裡最佳仍是 **trial 33：61/100 拒答 @ KL 0.0098**，
+  而且從 trial 33 之後就沒有再被擊敗（等於搜尋已plateau）。即時數字見 `results/best-trial.md`。
+* **模型尚未匯出**（`~/heretic/out/` 是空的），也沒有起服務。
+  Optuna journal 保留在 `~/heretic/qwen3.8-27b/checkpoints/*.jsonl`，之後 DGX 有空可直接繼續。
+* 速度實測：約 6.5 分鐘 / trial（GB10、batch 128、約 70 tok/s）。
+
+## 為什麼拒答率降不下來（初步診斷）
+
+查了 `Qwen/Qwen3.8-27B` 的 `chat_template.jinja`：這個模板**預設就開 thinking**
+（`{{- 'assistant\n' }}` 後面直接接 `{{- '<think>\n' }}`），而且預設
+`reasoning_effort` 是 **`xhigh`**（思維鏈很長）。但 heretic 只用 `max_response_length = 100`
+個 token 生成，於是：
+
+* 那 100 個 token 幾乎都還在 `think` 區塊裡，`chain_of_thought_skips`（`think` →
+  `think` 閉合區塊）找不到閉合點，**根本沒生成到真正的答案**。
+* 拒答關鍵字是在**思考文字**上比對的。heretic 的字串表很寬鬆
+  （`harmful`、`illegal`、`violat`、`prohibit`、`inappropriate`、`i can'`…），
+  思考文本本來就會出現這些詞 → **基線 90/100 高估**。
+* 真正該被移除的「答案開頭拒答」不在測量視窗內 → **消融效果被低估**（90 → 61 就卡住）。
+* 旁證：log 裡 `Checking for common response prefix...` 出現 `* None found`，
+  代表回應開頭不一致，正是 thinking 文字為主的現象。
+
+**下次要改的設定**（兩擇一或併用）：
+
+```toml
+# 方案 1：把生成窗拉大，讓答案真的被生成出來
+max_response_length = 512
+
+# 方案 2：評測時直接關掉 thinking（Qwen3.8 模板認 enable_thinking=false）
+# heretic 沒有直接開關，可用 response_prefix / chain_of_thought_skips 對策，
+# 或改用不預設 thinking 的模型變體。
+```
+* 後續（DGX 有空時）：重跑 `./dgx-run.sh run`（journal 會續跑）→ 先改掉上面的
+  `max_response_length` 再評測 → 匯出最佳 trial → 上傳 `joshhu/Qwen3.8-27B-abliterated`
+  → 用 vLLM 或 llama.cpp 起服務，並加進 `pi` 的模型選單。
+* 小坑：heretic 1.4.0 中途中止後重跑，因為 journal 裡 `finished=false`，選單只會給
+  「Continue the previous run」（會跑完剩餘 trials），不會給「直接顯示結果並匯出」。
+  想提早匯出就把 `n_trials` 設成已完成數再重跑，或改用 `--collect-reproducibles` /
+  `--reproduce` 那條路。
 
 ## 授權／備註
 
