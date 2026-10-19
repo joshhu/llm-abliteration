@@ -1,0 +1,8 @@
+# Heretic 1.4.0 config: abliterate Qwen/Qwen3.8-27B on DGX Spark (GB10)
+n_trials = 100
+n_startup_trials = 30
+seed = 42
+offload_outputs_to_cpu = true
+max_response_length = 100
+export_strategy = "merge"
+max_shard_size = "5GB"
